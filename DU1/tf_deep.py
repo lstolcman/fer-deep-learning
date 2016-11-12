@@ -1,4 +1,5 @@
 import tensorflow as tf
+import os
 
 class TFDeep:
     def __init__(self, config, param_delta, param_lambda=1e-4, activation=tf.nn.relu):
