@@ -15,8 +15,10 @@ def init_dir(d):
     if not os.path.exists(d):
         os.makedirs(d)
 
-DATA_DIR = '/home/marko/Projects/datasets/MNIST/'
-SAVE_DIR = "/home/marko/Projects/source/fer/contrib_out_l2_1e3/"
+
+ROOT = '/home/marko/Projects/faks/DU/fer-deep-learning'
+DATA_DIR = os.path.join(ROOT, 'datasets/MNIST/')
+SAVE_DIR = os.path.join(ROOT, 'source/fer/contrib_out_l2_1e3/')
 init_dir(SAVE_DIR)
 
 config = {}

@@ -9,19 +9,12 @@ import pickle
 import numpy as np
 import skimage as ski
 import skimage.io
-import matplotlib.pyplot as plt
 
 def init_dir(d):
     if not os.path.exists(d):
         os.makedirs(d)
         
-def save_image(img, path, mean, std, shape):
-  img *= std
-  img += mean
-  img = img.astype(np.uint8)
-  img = np.zeros(shape)
-  ski.io.imsave(path, img)
-
+        
 def shuffle_data(data_x, data_y):
   indices = np.arange(data_x.shape[0])
   np.random.shuffle(indices)
@@ -41,12 +34,11 @@ SAVE_DIR = "/home/marko/Projects/source/fer/cifar10/"
 init_dir(SAVE_DIR)
 
 config = {}
-config['max_epochs'] = 40
+config['max_epochs'] = 8
 config['batch_size'] = 50
 config['save_dir'] = SAVE_DIR
 config['weight_decay'] = 1e-4
-lr_initial = 0.01
-config['lr_policy'] = {e:{'lr':(0.9**e)*lr_initial} for e in range(1, config['max_epochs']+1)}
+config['lr_policy'] = {1:{'lr':1e-1}, 3:{'lr':1e-2}, 5:{'lr':1e-3}, 7:{'lr':1e-4}}
 
 # DATA
 img_height, img_width, num_channels = 32, 32, 3
@@ -56,11 +48,12 @@ for i in range(1, 6):
   subset = unpickle(os.path.join(DATA_DIR, 'data_batch_%d' % i))
   train_x = np.vstack((train_x, subset['data']))
   train_y += subset['labels']
-train_x = train_x.reshape((-1, num_channels, img_height, img_width)).transpose(0,2,3,1)
+
+train_x = train_x.reshape((-1, img_height, img_width, num_channels))
 train_y = np.array(train_y, dtype=np.int32)
 
 subset = unpickle(os.path.join(DATA_DIR, 'test_batch'))
-test_x = subset['data'].reshape((-1, num_channels, img_height, img_width)).transpose(0,2,3,1).astype(np.float32)
+test_x = subset['data'].reshape((-1, img_height, img_width, num_channels)).astype(np.float32)
 test_y = np.array(subset['labels'], dtype=np.int32)
 
 valid_size = 5000
@@ -201,63 +194,9 @@ def train(session, train_x, train_y, valid_x, valid_y, config):
     evaluate(session, "Validation", valid_x, valid_y, config)
   return net
 
-def train2(session, train_x, train_y, valid_x, valid_y, config):
-    plot_data = {}
-    plot_data['train_loss'] = []
-    plot_data['valid_loss'] = []
-    plot_data['train_acc'] = []
-    plot_data['valid_acc'] = []
-    plot_data['lr'] = []
-    
-    session.run(tf.initialize_all_variables())
-    
-    lr_policy = config['lr_policy']
-    batch_size = config['batch_size']
-    max_epochs = config['max_epochs']
-    save_dir = config['save_dir']
-    num_examples = train_x.shape[0]
-    assert num_examples % batch_size == 0
-    num_batches = num_examples // batch_size
-    
-    for epoch_num in range(1, max_epochs + 1):
-      train_x, train_y = shuffle_data(train_x, train_y)
-      if epoch_num in lr_policy:
-          solver_config = lr_policy[epoch_num]
-    
-      for step in range(num_batches):
-        offset = step * batch_size 
-        
-        batch_x = train_x[offset:(offset + batch_size), ...]
-        batch_y = train_y[offset:(offset + batch_size), ...]
-        
-        feed_dict = {X: batch_x, Y_: batch_y, lr:solver_config['lr']}
-        start_time = time.time()
-        ret_val = session.run([train_step, loss, logits], feed_dict=feed_dict)
-        _, loss_val, logits_val = ret_val
-        duration = time.time() - start_time
-        
-        if (step+1) % 50 == 0:
-          sec_per_batch = float(duration)
-          format_str = 'epoch %d, step %d / %d, loss = %.2f (%.3f sec/batch)'
-          print(format_str % (epoch_num, step+1, num_batches, loss_val, sec_per_batch))
-        
-        if (step+1) % 100 == 0:
-            w = session.run(weights['conv1'])
-            draw_conv_filters(epoch_num, step+1, w, save_dir)
 
-      print('Train error:')
-      train_loss, train_acc = evaluate(session, train_x, train_y, config)
-      print('Validation error:')
-      valid_loss, valid_acc = evaluate(session, valid_x, valid_y, config)
-      plot_data['train_loss'] += [train_loss]
-      plot_data['valid_loss'] += [valid_loss]
-      plot_data['train_acc'] += [train_acc]
-      plot_data['valid_acc'] += [valid_acc]
-      plot_data['lr'] += [solver_config['lr']]
-      plot_training_progress(SAVE_DIR, plot_data)
-
-        
-def evaluate(session, x, y, config):
+def evaluate(session, name, x, y, config):
+  print("\nRunning evaluation: ", name)
   batch_size = config['batch_size']
   num_examples = x.shape[0]
   assert num_examples % batch_size == 0
@@ -267,8 +206,8 @@ def evaluate(session, x, y, config):
 
 
   for i in range(num_batches):
-    batch_x = x[i*batch_size:(i+1)*batch_size, ...]
-    batch_y = y[i*batch_size:(i+1)*batch_size, ...]
+    batch_x = x[i*batch_size:(i+1)*batch_size, :]
+    batch_y = y[i*batch_size:(i+1)*batch_size, :]
     
     data_dict = {X: batch_x, Y_: batch_y}
     logits_val, loss_val = session.run([logits, loss] ,feed_dict=data_dict)
@@ -280,63 +219,9 @@ def evaluate(session, x, y, config):
     loss_avg += loss_val
   valid_acc = cnt_correct / num_examples * 100
   loss_avg /= num_batches
-    
-  print(" accuracy = %.2f" % valid_acc)
-  print(" avg loss = %.2f\n" % loss_avg)
-  return loss_avg, valid_acc
+  print(name + " accuracy = %.2f" % valid_acc)
+  print(name + " avg loss = %.2f\n" % loss_avg)
 
-def draw_conv_filters(epoch, step, weights, save_dir):
-  w = weights.copy()
-  num_filters = w.shape[3]
-  num_channels = w.shape[2]
-  k = w.shape[0]
-  assert w.shape[0] == w.shape[1]
-  w = w.reshape(k, k, num_channels, num_filters)
-  w -= w.min()
-  w /= w.max()
-  border = 1
-  cols = 8
-  rows = math.ceil(num_filters / cols)
-  width = cols * k + (cols-1) * border
-  height = rows * k + (rows-1) * border
-  img = np.zeros([height, width, num_channels])
-  for i in range(num_filters):
-    r = int(i / cols) * (k + border)
-    c = int(i % cols) * (k + border)
-    img[r:r+k,c:c+k,:] = w[:,:,:,i]
-  filename = 'epoch_%02d_step_%06d.png' % (epoch, step)
-  ski.io.imsave(os.path.join(save_dir, filename), img)
-
-def plot_training_progress(save_dir, data):
-  fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16,8))
-  linewidth = 2
-  legend_size = 10
-  train_color = 'm'
-  val_color = 'c'
-
-  num_points = len(data['train_loss'])
-  x_data = np.linspace(1, num_points, num_points)
-  ax1.set_title('Cross-entropy loss')
-  ax1.plot(x_data, data['train_loss'], marker='o', color=train_color,
-           linewidth=linewidth, linestyle='-', label='train')
-  ax1.plot(x_data, data['valid_loss'], marker='o', color=val_color,
-           linewidth=linewidth, linestyle='-', label='validation')
-  ax1.legend(loc='upper right', fontsize=legend_size)
-  ax2.set_title('Average class accuracy')
-  ax2.plot(x_data, data['train_acc'], marker='o', color=train_color,
-           linewidth=linewidth, linestyle='-', label='train')
-  ax2.plot(x_data, data['valid_acc'], marker='o', color=val_color,
-           linewidth=linewidth, linestyle='-', label='validation')
-  ax2.legend(loc='upper left', fontsize=legend_size)
-  ax3.set_title('Learning rate')
-  ax3.plot(x_data, data['lr'], marker='o', color=train_color,
-           linewidth=linewidth, linestyle='-', label='learning_rate')
-  ax3.legend(loc='upper left', fontsize=legend_size)
-
-  save_path = os.path.join(save_dir, 'training_plot.pdf')
-  print('Plotting in: ', save_path)
-  plt.savefig(save_path)
     
 session = tf.Session()
-#train2(session, train_x, train_y, valid_x, valid_y, config)
-print(train_x[0])
+train(session, train_x, train_y, valid_x, valid_y, config)
